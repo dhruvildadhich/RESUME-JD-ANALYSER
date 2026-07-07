@@ -12,12 +12,6 @@ from typing import Any
 from google import genai
 
 from app.config.settings import get_settings
-from app.core.constants import (
-    RECOMMENDATION_STRONG_MATCH,
-    RECOMMENDATION_GOOD_POTENTIAL,
-    RECOMMENDATION_NEEDS_IMPROVEMENT,
-    RECOMMENDATION_NOT_RECOMMENDED,
-)
 from app.core.logging import get_logger
 from app.schemas.analysis import MatchedSkill, MissingSkill, SkillExtractionResult
 from app.core.cache import get_cached_explanation, set_cached_explanation
@@ -34,6 +28,7 @@ Evaluate the candidate's resume against the job description and the computed mat
 
 Computed Match Metrics:
 - Match Score: {match_score}%
+- Score Breakdown: {score_breakdown}
 - Matched Skills & Categories: {matched_skills}
 - Missing Skills & Importance: {missing_skills}
 
@@ -56,20 +51,11 @@ Return ONLY a valid JSON object with this exact structure:
     "Critical Gaps: List critical skills missing and how they impact fit.",
     "Optional Gaps: List optional missing skills and explain why they have low impact due to equivalent tool usage."
   ],
-  "explanation": "A professional 3-4 sentence narrative summarizing the candidate's overall fit, equivalent skills, and core engineering strengths.",
+  "explanation": "A professional 3-4 sentence narrative summarizing the candidate's overall fit. You MUST explicitly mention the candidate's performance across CRITICAL vs OPTIONAL requirements.",
   "suggestions": [
-    "Actionable tip 1: Detail a concrete project or tool to learn to cover critical gaps.",
-    "Actionable tip 2: Suggested certifications or architecture designs.",
-    "Actionable tip 3: Advanced MLOps/cloud capabilities to add."
-  ],
-  "hiring_recommendation": "Strong Match | Good Potential Match | Needs Improvement | Not Recommended"
+    "2-3 actionable suggestions for the candidate to improve their profile for this role"
+  ]
 }}
-
-Hiring Recommendation Guidelines:
-- "Strong Match": Satisfies all/most critical requirements, strong AI project evidence (80+ score).
-- "Good Potential Match": Strong core practical experience (FastAPI, RAG, Python) but missing some advanced/optional items (60-79 score).
-- "Needs Improvement": Has foundation but missing crucial critical skills (40-59 score).
-- "Not Recommended": Major critical areas completely missing (below 40 score).
 
 Return ONLY the JSON. No markdown, no code fences, no extra text.
 """
@@ -83,6 +69,7 @@ def generate_explanation(
     critical_gaps: list[MissingSkill],
     recommended_improvements: list[MissingSkill],
     optional_skills: list[MissingSkill],
+    score_breakdown: dict = None,
     extraction_result: SkillExtractionResult | None = None,
 ) -> dict[str, Any]:
     """
@@ -108,13 +95,13 @@ def generate_explanation(
             "Explanation reused from Gemini extraction result, skipping explanation call",
             extra={"gemini_explanation_reused": True},
         )
-        return {
-            "strengths": extraction_result.strengths,
-            "weaknesses": extraction_result.weaknesses,
-            "explanation": extraction_result.explanation,
-            "suggestions": extraction_result.suggestions,
-            "hiring_recommendation": extraction_result.hiring_recommendation,
-        }
+        if extraction_result:
+            return {
+                "strengths": extraction_result.strengths,
+                "weaknesses": extraction_result.weaknesses,
+                "explanation": extraction_result.explanation,
+                "suggestions": extraction_result.suggestions,
+            }
 
     # Serialization for caching
     score_data = {
@@ -136,16 +123,13 @@ def generate_explanation(
 
     missing_skills = critical_gaps + recommended_improvements + optional_skills
 
-    # Format the structured lists into readable context string for Gemini prompt
-    matched_str = ", ".join([f"{item.skill} ({item.category})" for item in matched_skills]) if matched_skills else "None"
-    missing_str = ", ".join([f"{item.skill} ({item.importance}: {item.note})" for item in missing_skills]) if missing_skills else "None"
-
     prompt = _EXPLANATION_PROMPT.format(
         match_score=match_score,
-        matched_skills=matched_str,
-        missing_skills=missing_str,
-        resume_text=resume_text[:5000],
-        jd_text=jd_text[:2500],
+        score_breakdown=json.dumps(score_breakdown or {}),
+        matched_skills=json.dumps([{"skill": s.skill, "category": s.category, "importance": getattr(s, 'importance', 'IMPORTANT')} for s in matched_skills]),
+        missing_skills=json.dumps([{"skill": s.skill, "importance": s.importance} for s in critical_gaps + recommended_improvements + optional_skills]),
+        resume_text=resume_text[:2500],
+        jd_text=jd_text[:1500]
     )
 
     try:
@@ -179,9 +163,11 @@ def generate_explanation(
         )
         def _call_gemini_with_retry():
             logger.info(f"Calling Gemini API ({settings.gemini_explanation_model}) for AI explanation")
+            from google.genai import types
             return client.models.generate_content(
                 model=settings.gemini_explanation_model,
                 contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json"),
             )
 
         response = _call_gemini_with_retry()
@@ -193,7 +179,7 @@ def generate_explanation(
         payload = json.loads(cleaned)
 
         # Validate required keys
-        required_keys = {"strengths", "weaknesses", "explanation", "suggestions", "hiring_recommendation"}
+        required_keys = {"strengths", "weaknesses", "explanation", "suggestions"}
         missing_keys = required_keys - set(payload.keys())
         if missing_keys:
             raise ValueError(f"Missing keys in Gemini response: {missing_keys}")
@@ -220,10 +206,7 @@ def generate_explanation(
         )
         payload = generate_explanation_fallback(matched_skills, critical_gaps, recommended_improvements, optional_skills, match_score)
 
-    logger.info(
-        "AI explanation generated",
-        extra={"recommendation": payload.get("hiring_recommendation", "unknown")},
-    )
+    logger.info("Gemini AI explanation generated", extra={})
     return payload
 
 
@@ -244,7 +227,7 @@ def generate_explanation_fallback(
     if matched_skills:
         strengths.append(f"Demonstrates core competency in normalized categories: {', '.join(list(set([item.category for item in matched_skills[:3]])))}.")
         strengths.append(f"Hands-on project evidence found for skills: {', '.join(matched_names[:4])}.")
-        strengths.append("Possesses practical experience building and deploying API endpoints or applications.")
+        strengths.append("Possesses practical experience building and deploying applications.")
     else:
         strengths.append("Candidate has general software development foundations.")
 
@@ -260,7 +243,7 @@ def generate_explanation_fallback(
     # Actionable suggestions
     if critical_gaps:
         for skill in [item.skill for item in critical_gaps[:2]]:
-            suggestions.append(f"Build a standalone backend or pipeline showcasing hands-on usage of {skill}.")
+            suggestions.append(f"Build a standalone project showcasing hands-on usage of {skill}.")
     if recommended_improvements:
         for skill in [item.skill for item in recommended_improvements[:2]]:
             suggestions.append(f"Familiarize yourself with {skill} to broaden toolset options.")
@@ -268,18 +251,13 @@ def generate_explanation_fallback(
     if not suggestions:
         suggestions.append("Incorporate quantitative achievements and architecture scaling details to project descriptions.")
 
-    # Recruiter recommendations matching the new levels
     if match_score >= 80:
-        recommendation = RECOMMENDATION_STRONG_MATCH
         explanation = f"The candidate shows exceptional alignment ({match_score}%) with strong project evidence matching all critical categories."
     elif match_score >= 60:
-        recommendation = RECOMMENDATION_GOOD_POTENTIAL
         explanation = f"The candidate has strong practical experience ({match_score}%) covering critical technical skills. Missing some optional tools, which are easily acquired on the job."
     elif match_score >= 40:
-        recommendation = RECOMMENDATION_NEEDS_IMPROVEMENT
         explanation = f"The candidate matches some foundations ({match_score}%) but is missing several critical core competencies required for immediate success."
     else:
-        recommendation = RECOMMENDATION_NOT_RECOMMENDED
         explanation = f"The candidate alignment is low ({match_score}%) with major required skill categories missing from the resume."
 
     return {
@@ -287,6 +265,4 @@ def generate_explanation_fallback(
         "weaknesses": weaknesses,
         "explanation": explanation,
         "suggestions": suggestions,
-        "hiring_recommendation": recommendation
     }
-

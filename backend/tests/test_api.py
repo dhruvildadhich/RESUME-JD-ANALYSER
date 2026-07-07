@@ -130,7 +130,7 @@ class TestAnalyzeEndpoint:
             "weaknesses": ["Missing Docker experience"],
             "explanation": "Candidate is a good fit.",
             "suggestions": ["Learn Docker", "Build a containerised project"],
-            "hiring_recommendation": "Good Potential Match",
+            "hiring_recommendation": "Potential Match",
         }
 
         async with AsyncClient(
@@ -149,7 +149,7 @@ class TestAnalyzeEndpoint:
         assert data["critical_gaps"][0]["skill"] == "Docker"
         assert data["candidate_level"]["candidate_level"] == "Mid Level Engineer"
         assert data["confidence"]["confidence_score"] == 80
-        assert data["hiring_recommendation"] == "Good Potential Match"
+        assert data["hiring_recommendation"] == "Potential Match"
 
     @patch("app.services.ai_explanation.genai.Client")
     @patch("app.api.routes.calculate_score")
@@ -202,7 +202,7 @@ class TestAnalyzeEndpoint:
             weaknesses=["Missing Docker experience"],
             explanation="Candidate is a good fit.",
             suggestions=["Learn Docker", "Build a containerised project"],
-            hiring_recommendation="Good Potential Match",
+            hiring_recommendation="Potential Match",
         )
         mock_similarity.return_value = 0.85
 
@@ -235,7 +235,7 @@ class TestAnalyzeEndpoint:
         data = response.json()
         assert data["match_score"] == 74
         assert data["explanation"] == "Candidate is a good fit."
-        assert data["hiring_recommendation"] == "Good Potential Match"
+        assert data["hiring_recommendation"] == "Potential Match"
         assert data["strengths"] == ["Strong Python skills"]
         assert data["suggestions"] == ["Learn Docker", "Build a containerised project"]
         # Gemini client should NOT be called since explanation is reused from extraction

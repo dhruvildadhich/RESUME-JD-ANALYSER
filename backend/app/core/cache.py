@@ -9,6 +9,7 @@ import json
 import os
 import sqlite3
 import time
+import re
 from typing import Any, List, Optional
 from app.core.logging import get_logger
 
@@ -78,7 +79,8 @@ def initialize_cache() -> None:
 def get_cached_extraction(resume_text: str, jd_text: str, skill_prompt_version: str, model_name: str) -> Optional[dict]:
     """Retrieve a cached extraction result if it exists and is not expired."""
     payload_str = resume_text + jd_text + skill_prompt_version + model_name
-    key = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+    normalized_payload = re.sub(r'\s+', ' ', payload_str.lower().strip())
+    key = hashlib.sha256(normalized_payload.encode("utf-8")).hexdigest()
     try:
         if not os.path.exists(CACHE_DB):
             return None
@@ -103,7 +105,8 @@ def get_cached_extraction(resume_text: str, jd_text: str, skill_prompt_version: 
 def set_cached_extraction(resume_text: str, jd_text: str, skill_prompt_version: str, model_name: str, result: dict, ttl_seconds: Optional[int] = None, source: str = "gemini") -> None:
     """Store an extraction result in the cache, optionally with a TTL."""
     payload_str = resume_text + jd_text + skill_prompt_version + model_name
-    key = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+    normalized_payload = re.sub(r'\s+', ' ', payload_str.lower().strip())
+    key = hashlib.sha256(normalized_payload.encode("utf-8")).hexdigest()
     try:
         expires_at = int(time.time() + ttl_seconds) if ttl_seconds is not None else None
         os.makedirs(CACHE_DIR, exist_ok=True)
@@ -125,7 +128,8 @@ def set_cached_extraction(resume_text: str, jd_text: str, skill_prompt_version: 
 def get_cached_explanation(score_result_json: str, extraction_result_json: str) -> Optional[dict]:
     """Retrieve a cached AI explanation if it exists."""
     payload_str = f"{score_result_json}|||{extraction_result_json}"
-    key = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+    normalized_payload = re.sub(r'\s+', ' ', payload_str.lower().strip())
+    key = hashlib.sha256(normalized_payload.encode("utf-8")).hexdigest()
     try:
         if not os.path.exists(CACHE_DB):
             return None
@@ -144,7 +148,8 @@ def get_cached_explanation(score_result_json: str, extraction_result_json: str) 
 def set_cached_explanation(score_result_json: str, extraction_result_json: str, result: dict) -> None:
     """Store an AI explanation in the cache."""
     payload_str = f"{score_result_json}|||{extraction_result_json}"
-    key = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()
+    normalized_payload = re.sub(r'\s+', ' ', payload_str.lower().strip())
+    key = hashlib.sha256(normalized_payload.encode("utf-8")).hexdigest()
     try:
         os.makedirs(CACHE_DIR, exist_ok=True)
         with get_db_connection() as conn:

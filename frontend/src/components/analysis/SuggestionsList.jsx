@@ -1,6 +1,6 @@
 import React from "react";
-import { Card } from "./ui";
-import { COLORS, SPACING, TYPOGRAPHY, RADIUS } from "../styles/designTokens";
+import { Card } from "../ui";
+import { COLORS, SPACING, TYPOGRAPHY, RADIUS } from "../../styles/designTokens";
 
 export default function SuggestionsList({ suggestions = [] }) {
   if (!suggestions.length) return null;

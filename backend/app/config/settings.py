@@ -13,18 +13,21 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # ── Gemini ──────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"  # Keep for backward compatibility
     
-    gemini_extraction_model: str = "gemini-2.5-flash"
-    gemini_explanation_model: str = "gemini-2.5-flash-lite"
+    gemini_extraction_model: str = "gemini-2.5-flash-lite"
+    gemini_explanation_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
 
     # ── Embedding ────────────────────────────────────────────────────────────
-    embedding_model: str = "models/text-embedding-004"
+    embedding_provider: str = "local"
+    embedding_model: str = "BAAI/bge-base-en-v1.5"
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
     # ── Scoring weights ──────────────────────────────────────────────────────
     skill_weight: float = 0.60

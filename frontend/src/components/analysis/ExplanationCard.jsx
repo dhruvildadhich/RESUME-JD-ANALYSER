@@ -1,6 +1,6 @@
 import React from "react";
-import { Card } from "./ui";
-import { COLORS, SPACING, TYPOGRAPHY, RADIUS } from "../styles/designTokens";
+import { Card } from "../ui";
+import { COLORS, SPACING, TYPOGRAPHY, RADIUS } from "../../styles/designTokens";
 
 export default function ExplanationCard({
   explanation,
@@ -34,7 +34,7 @@ export default function ExplanationCard({
               Score Breakdown
             </span>
             <p style={{ fontSize: "12px", color: COLORS["ink-muted"], margin: "2px 0 0", opacity: 0.6 }}>
-              Weighted component scores
+              Component score overview
             </p>
           </div>
         </div>
@@ -46,8 +46,8 @@ export default function ExplanationCard({
           }}
           className="max-sm:grid-cols-1"
         >
-          <ScoreBar label="Skill Overlap" value={skillOverlapScore} weight="60%" color={COLORS["accent-blue"]} />
-          <ScoreBar label="Semantic Similarity" value={semanticScore} weight="40%" color={COLORS["gradient-violet"]} />
+          <ScoreBar label="Skill Alignment"       value={skillOverlapScore} color={COLORS["accent-blue"]} />
+          <ScoreBar label="Experience Relevance"   value={semanticScore}     color={COLORS["gradient-violet"]} />
         </div>
       </Card>
 
@@ -66,10 +66,10 @@ export default function ExplanationCard({
                 color: COLORS["ink-muted"],
               }}
             >
-              AI Recruiter Report
+              Explanation
             </span>
             <p style={{ fontSize: "12px", color: COLORS["ink-muted"], margin: "2px 0 0", opacity: 0.6 }}>
-              Senior recruiter-style evaluation
+              Detailed evaluation summary
             </p>
           </div>
         </div>
@@ -149,14 +149,14 @@ function getRecommendationMeta(rec) {
   return { color: COLORS.semantic.error };
 }
 
-function ScoreBar({ label, value, weight, color }) {
+function ScoreBar({ label, value, color }) {
   const pct = Math.min(100, Math.max(0, value || 0));
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
         <span style={{ fontSize: "12px", color: COLORS["ink-muted"] }}>{label}</span>
-        <span style={{ fontSize: "12px", fontWeight: 600, color: COLORS.ink }}>
-          {pct.toFixed(1)}% <span style={{ color: COLORS["ink-muted"], fontWeight: 400 }}>&times; {weight}</span>
+        <span style={{ fontSize: "13px", fontWeight: 700, color: COLORS.ink }}>
+          {Math.round(pct)}%
         </span>
       </div>
       <div

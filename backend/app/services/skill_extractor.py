@@ -47,6 +47,7 @@ Return ONLY a valid JSON object with this exact structure:
       "candidate_skill": "Technology from Resume (e.g. FastAPI)",
       "match_type": "EXACT_MATCH | EQUIVALENT_MATCH | PARTIAL_MATCH",
       "evidence": "Concrete sentence or implementation details from the resume, showing the project name if available and implementation details. (NEVER use generic phrases like 'Found python directly in resume')",
+      "importance": "CRITICAL | IMPORTANT | OPTIONAL",
       "confidence": 0.95
     }}
   ],
@@ -54,21 +55,27 @@ Return ONLY a valid JSON object with this exact structure:
     {{
       "skill": "Skill Name from JD",
       "importance": "CRITICAL",
-      "note": "Reason why it is critical for backend/system development"
+      "note": "Reason why it is critical for backend/system development",
+      "reason": "Detailed reason why missing this skill is a critical gap",
+      "suggestion": "Actionable advice on what candidate should learn"
     }}
   ],
   "recommended_improvements": [
     {{
       "skill": "Skill Name from JD",
       "importance": "IMPORTANT",
-      "note": "Reason why this improves capability"
+      "note": "Reason why this improves capability",
+      "reason": "Why this skill adds value",
+      "suggestion": "Actionable advice to improve"
     }}
   ],
   "optional_skills": [
     {{
       "skill": "Skill Name from JD",
       "importance": "OPTIONAL",
-      "note": "Reason/Note (e.g. candidate already has Gemini API experience)"
+      "note": "Reason/Note (e.g. candidate already has Gemini API experience)",
+      "reason": "Why it's optional",
+      "suggestion": "How to pick it up easily"
     }}
   ],
   "project_experience": [
@@ -92,32 +99,41 @@ Return ONLY a valid JSON object with this exact structure:
   "weaknesses": [
     "Top 3-5 gaps or weaker areas of the candidate relative to the JD"
   ],
-  "explanation": "A 2-3 sentence plain-English summary of why the candidate is or is not a good fit, referencing key matches and gaps",
+  "explanation": "A 2-3 sentence plain-English summary of why the candidate is or is not a good fit, explicitly mentioning their performance across CRITICAL vs OPTIONAL requirements and referencing key matches and gaps",
   "suggestions": [
     "2-3 actionable suggestions for the candidate to improve their profile for this role"
-  ],
-  "hiring_recommendation": "Strong Hire | Hire | Neutral | Weak Reject | Strong Reject"
+  ]
 }}
 
 Normalisation Rules for Competency Categories (use these for 'skill' under 'matched_skills'):
-1. Map OpenAI API, Gemini API, Claude API, Groq API, etc. to Category "LLM API Integration".
-2. Map ChromaDB, Pinecone, FAISS, Weaviate, etc. to Category "Vector Database Experience".
+1. Map REST API, Gemini API, Groq API, Cloudinary API, external service integrations, third-party APIs etc. to Category "API Integration".
+2. Map ChromaDB, Pinecone, FAISS, Weaviate, Qdrant, Milvus etc. to Category "Vector Database Experience".
 3. Map FastAPI, Flask, Django, etc. to Category "Python Backend Development".
-4. Map SentenceTransformer, Embedding Models, HuggingFace embeddings, etc. to Category "Embedding Experience".
-5. Map React, Next.js, Vue, etc. to Category "Frontend Development".
-6. Map Docker, Docker Compose, Kubernetes, etc. to Category "Containerization".
-7. Map PyTorch, TensorFlow, Keras to Category "Deep Learning Frameworks".
-8. Map PostgreSQL, MySQL, MongoDB to Category "Database Experience".
-9. Map AWS, GCP, Azure to Category "Cloud Platform Experience".
+4. Map Express, Node.js, NestJS, Multer, Nodemailer, Socket.IO, etc. to Category "JavaScript Backend Development".
+5. Map SentenceTransformer, Embedding Models, HuggingFace embeddings, etc. to Category "Embedding Experience".
+6. Map React, Next.js, Vue, React Router, etc. to Category "Frontend Development".
+7. Map Docker, Docker Compose, Kubernetes, CI/CD, GitHub Actions etc. to Category "DevOps".
+8. Map PyTorch, TensorFlow, Keras to Category "Deep Learning".
+9. Map PostgreSQL, MySQL, MongoDB, Database Schema Design, Mongoose ODM, entity relationships, database architecture to Category "Database Schema Design".
+10. Map AWS, GCP, Azure to Category "Cloud Infrastructure".
+11. Map OpenAI, Gemini, Claude, Groq, Mistral, Llama to Category "LLM API Integration".
+12. Map RAG, chunking, semantic search, retrieval pipeline to Category "RAG Implementation".
+13. Map Pytest, Unit testing, Integration testing, TDD to Category "Testing".
+14. NEVER infer PyTorch, TensorFlow, Fine-tuning, or Model Training from just SentenceTransformer, Gemini API, Groq API, or RAG alone. They must remain gaps unless explicitly mentioned.
 
 Match Type Guidelines:
 - EXACT_MATCH: Same technology exists (e.g. JD: Docker, Resume: Docker).
-- EQUIVALENT_MATCH: Different tools but same competency category (e.g. JD: Flask, Resume: FastAPI). Also for Deep Learning frameworks (JD: PyTorch, Resume: TensorFlow).
+- EQUIVALENT_MATCH: Different tools but same competency category (e.g. JD: Pinecone, Resume: ChromaDB, or JD: OpenAI, Resume: Gemini). ALWAYS use this when tools belong to the same category.
 - PARTIAL_MATCH: Candidate has related knowledge/category basics but lacks direct tool/production experience or the skill is mentioned in a non-project context.
 
-Evidence Guidelines:
-- Evidence MUST contain: project name if available, concrete sentence/context from resume, and implementation detail (e.g., "implemented X using Y").
-- Look for action verbs like 'built', 'designed', 'implemented', 'optimized', 'deployed', 'integrated', 'architected', 'developed', 'automated', 'created', 'engineered', 'managed', 'led', 'pioneered', 'orchestrated', 'scaled'.
+Evidence Guidelines & Project Experience Detection:
+- Evidence MUST contain: project name if available, concrete sentence/context from resume, and implementation detail.
+- PROJECT DETECTION STRICT RULES: 
+   - WEAK ("learned Python", "completed course", "familiar with"): DO NOT SCORE AS STRONG.
+   - MEDIUM ("created application", "used X"): Acceptable for junior roles.
+   - STRONG ("built RAG system using FastAPI + ChromaDB", "architected"): Reward this heavily.
+   - VERY STRONG ("deployed production system with Docker", "scaled"): Maximum credit.
+- Look for action verbs like 'built', 'designed', 'implemented', 'optimized', 'deployed', 'integrated', 'architected'.
 - NEVER output generic comments. If strong evidence is missing, the skill match confidence must decrease, and the evidence field should clearly state the limitation.
 
 Seniority Evaluation Guidelines:
@@ -136,7 +152,6 @@ Explanation Fields Guidelines:
 - weaknesses: List 3-5 specific gaps or weaker areas referencing JD requirements (e.g. "No experience with Docker or containerization shown in projects").
 - explanation: 2-3 sentence plain-English summary covering overall fit, key matches, and critical gaps.
 - suggestions: 2-3 concrete, actionable improvements the candidate could make (e.g. "Add a containerised deployment project using Docker and Kubernetes").
-- hiring_recommendation: One of "Strong Hire", "Hire", "Neutral", "Weak Reject", or "Strong Reject" based on overall alignment.
 
 RESUME:
 {resume_text}
@@ -215,10 +230,12 @@ def extract_skills(resume_text: str, jd_text: str) -> SkillExtractionResult:
             )
             def _call_gemini_with_retry():
                 logger.info(f"Calling Gemini API ({settings.gemini_extraction_model}) for skill extraction")
+                from google.genai import types
                 client = genai.Client(api_key=settings.gemini_api_key)
                 return client.models.generate_content(
                     model=settings.gemini_extraction_model,
                     contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json"),
                 )
 
             response = _call_gemini_with_retry()

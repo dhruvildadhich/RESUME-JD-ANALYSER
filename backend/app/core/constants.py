@@ -48,15 +48,15 @@ CONFIDENCE_LOW = "LOW"
 
 # ── Hiring recommendations ───────────────────────────────────────────────────
 
+RECOMMENDATION_EXCELLENT_MATCH = "Excellent Match"
 RECOMMENDATION_STRONG_MATCH = "Strong Match"
-RECOMMENDATION_GOOD_POTENTIAL = "Good Potential Match"
-RECOMMENDATION_NEEDS_IMPROVEMENT = "Needs Improvement"
-RECOMMENDATION_NOT_RECOMMENDED = "Not Recommended"
+RECOMMENDATION_POTENTIAL_MATCH = "Potential Match"
+RECOMMENDATION_WEAK_MATCH = "Weak Match"
 
 # ── Evidence scoring ─────────────────────────────────────────────────────────
 
 EVIDENCE_MENTIONED_SCORE = 0.40
-EVIDENCE_USED_SCORE = 0.75
+EVIDENCE_USED_SCORE = 0.70
 EVIDENCE_BUILT_DEPLOYED_SCORE = 1.00
 
 # ── Candidate levels ─────────────────────────────────────────────────────────
@@ -66,6 +66,44 @@ CANDIDATE_LEVEL_JUNIOR = "Junior AI Engineer"
 CANDIDATE_LEVEL_MID = "Mid Level AI Engineer"
 CANDIDATE_LEVEL_SENIOR = "Senior AI Engineer"
 CANDIDATE_LEVEL_ENTRY = "Entry Level AI Engineer"
+
+# ── Experience levels (Evidence Validator) ────────────────────────────────────
+
+EXPERIENCE_MENTION_ONLY = "Mention Only"
+EXPERIENCE_PROJECT = "Project Experience"
+EXPERIENCE_PRODUCTION = "Production Experience"
+
+EXPERIENCE_CONFIDENCE = {
+    EXPERIENCE_MENTION_ONLY: 50,
+    EXPERIENCE_PROJECT: 80,
+    EXPERIENCE_PRODUCTION: 95,
+}
+
+# ── Recruiter decisions ───────────────────────────────────────────────────────
+
+RECRUITER_STRONG_CANDIDATE = "Strong Interview Candidate"
+RECRUITER_POTENTIAL_CANDIDATE = "Potential Candidate"
+RECRUITER_NEEDS_DEVELOPMENT = "Needs Development"
+
+RECRUITER_RISK_LOW = "Low"
+RECRUITER_RISK_MEDIUM = "Medium"
+RECRUITER_RISK_HIGH = "High"
+
+# ── Skill gap impact scores ───────────────────────────────────────────────────
+
+IMPACT_CRITICAL = -25
+IMPACT_IMPORTANT = -10
+IMPACT_OPTIONAL = -5
+
+# ── Evidence validator thresholds ────────────────────────────────────────────
+
+EVIDENCE_CONFIDENCE_THRESHOLD = 0.50
+EVIDENCE_CROSS_ENCODER_THRESHOLD = 0.65
+
+# ── Confidence analysis thresholds ───────────────────────────────────────────
+
+CONFIDENCE_HIGH_THRESHOLD = 90
+CONFIDENCE_MEDIUM_THRESHOLD = 70
 
 # ── Seniority evaluation thresholds ──────────────────────────────────────────
 
@@ -98,11 +136,7 @@ PROJECT_SCORE_MINIMAL = 20.0
 PROJECT_SCORE_NORMALIZATION_DIVISOR = 3.0
 
 # ── Scoring final weights ────────────────────────────────────────────────────
-
-WEIGHT_TECH_SKILL = 0.40
-WEIGHT_PROJECT_EXP = 0.25
-WEIGHT_SEMANTIC = 0.20
-WEIGHT_PRODUCTION = 0.15
+# Weights are now managed in app.config.settings.Settings via .env
 
 # ── Error message keys (API responses) ───────────────────────────────────────
 

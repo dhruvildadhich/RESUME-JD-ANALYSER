@@ -19,15 +19,15 @@ from app.core.constants import (
     IMPORTANCE_CRITICAL,
     IMPORTANCE_IMPORTANT,
     IMPORTANCE_OPTIONAL,
-    IMPORTANCE_WEIGHTS,
-    MATCH_TYPE_WEIGHTS,
+    EXACT_MATCH,
+    EXACT,
+    EQUIVALENT_MATCH,
+    EQUIVALENT,
+    PARTIAL_MATCH,
+    PARTIAL,
     EVIDENCE_MENTIONED_SCORE,
     EVIDENCE_USED_SCORE,
     EVIDENCE_BUILT_DEPLOYED_SCORE,
-    WEIGHT_TECH_SKILL,
-    WEIGHT_PROJECT_EXP,
-    WEIGHT_SEMANTIC,
-    WEIGHT_PRODUCTION,
     PROJECT_SCORE_BUILT_AT_SCALE,
     PROJECT_SCORE_BUILT,
     PROJECT_SCORE_MIXED,
@@ -47,12 +47,18 @@ from app.core.constants import (
 from app.core.logging import get_logger
 from app.schemas.analysis import (
     ScoringResult,
+    ScoreBreakdown,
+    SkillEvidence,
+    ConfidenceAnalysis,
+    RecruiterDecision,
+    ImprovementSuggestion,
     MatchedSkill,
     MissingSkill,
     ProjectExperience,
     CandidateLevel,
     ConfidenceResult,
 )
+from app.config.settings import get_settings
 
 logger = get_logger(__name__)
 
@@ -100,7 +106,7 @@ def calculate_score(
     recommended_improvements: List[MissingSkill],
     optional_skills: List[MissingSkill],
     project_experience: List[ProjectExperience],
-    semantic_similarity: float,
+    semantic_similarity: dict,
     candidate_level: Optional[CandidateLevel] = None,
     confidence: Optional[ConfidenceResult] = None,
 ) -> ScoringResult:
@@ -115,39 +121,65 @@ def calculate_score(
     """
 
     # ── 1. Technical Skill Match (40%) ──
-    matched_weight_sum = 0.0
-    evidence_quality_sum = 0.0
-    total_weight_sum = 0.0
+    critical_earned = 0.0
+    important_earned = 0.0
+    optional_earned = 0.0
+
+    critical_matched_count = 0
+    important_matched_count = 0
+    optional_matched_count = 0
 
     for item in matched_skills:
-        skill_lower = (item.required_skill or item.skill).lower()
+        # Assign points based on match type
+        if item.match_type in (EXACT_MATCH, EXACT):
+            match_val = 1.0
+        elif item.match_type in (EQUIVALENT_MATCH, EQUIVALENT):
+            match_val = 0.9
+        elif item.match_type in (PARTIAL_MATCH, PARTIAL):
+            match_val = 0.7
+        else:
+            match_val = 0.5
+            
+        imp = item.importance.upper() if getattr(item, 'importance', None) else "IMPORTANT"
+        if imp == "CRITICAL":
+            critical_earned += match_val
+            critical_matched_count += 1
+        elif imp == "OPTIONAL":
+            optional_earned += match_val
+            optional_matched_count += 1
+        else:
+            important_earned += match_val
+            important_matched_count += 1
 
-        # Determine importance
-        importance = IMPORTANCE_IMPORTANT
-        if any(kw in skill_lower for kw in ["python", "fastapi", "flask", "llm", "rag", "embedding", "vector", "rest", "backend", "deep learning", "pytorch", "tensorflow"]):
-            importance = IMPORTANCE_CRITICAL
-        elif any(kw in skill_lower for kw in ["claude", "openai", "azure", "aws", "gcp", "mlops", "research"]):
-            importance = IMPORTANCE_OPTIONAL
+    total_critical = critical_matched_count + len(critical_gaps)
+    total_important = important_matched_count + len(recommended_improvements)
+    total_optional = optional_matched_count + len(optional_skills)
 
-        base_weight = IMPORTANCE_WEIGHTS.get(importance, 5.0)
-        match_type_w = MATCH_TYPE_WEIGHTS.get(item.match_type, 0.50)
-        evidence_w = _evidence_level(item.evidence, item.match_type)
-        confidence_w = max(0.25, min(1.0, getattr(item, 'confidence', 1.0)))
+    earned_weight = 0.0
+    total_weight = 0.0
 
-        effective_weight = base_weight * match_type_w * evidence_w * confidence_w
-        matched_weight_sum += effective_weight
-        evidence_quality_sum += evidence_w
-        total_weight_sum += base_weight
+    if total_critical > 0:
+        critical_score = critical_earned / total_critical
+        earned_weight += critical_score * 0.50
+        total_weight += 0.50
+    else:
+        critical_score = 0.0
 
-    # Gaps add to denominator (penalty)
-    for critical_item in critical_gaps:
-        total_weight_sum += IMPORTANCE_WEIGHTS.get(critical_item.importance, 10.0)
-    for rec_item in recommended_improvements:
-        total_weight_sum += IMPORTANCE_WEIGHTS.get(rec_item.importance, 5.0)
-    for opt_item in optional_skills:
-        total_weight_sum += IMPORTANCE_WEIGHTS.get(opt_item.importance, 0.0)  # optional gaps do not penalize
+    if total_important > 0:
+        important_score = important_earned / total_important
+        earned_weight += important_score * 0.30
+        total_weight += 0.30
+    else:
+        important_score = 0.0
 
-    core_tech_score = (matched_weight_sum / total_weight_sum * 100.0) if total_weight_sum > 0 else 100.0
+    if total_optional > 0:
+        optional_score = optional_earned / total_optional
+        earned_weight += optional_score * 0.20
+        total_weight += 0.20
+    else:
+        optional_score = 0.0
+
+    core_tech_score = (earned_weight / total_weight * 100.0) if total_weight > 0 else 100.0
 
     # ── 2. AI Engineering Depth / Project Experience (25%) ──
     WEAK_VERBS = ["learn", "explore", "interest", "study", "academic", "tutorial", "course", "class", "student"]
@@ -164,18 +196,28 @@ def calculate_score(
         has_strong = any(s in ev for s in STRONG_VERBS)
         has_scale = _has_scale_numbers(exp.evidence)
 
+        base_score = 0.0
         if has_strong and has_scale:
-            project_scores.append(PROJECT_SCORE_BUILT_AT_SCALE)
+            base_score = PROJECT_SCORE_BUILT_AT_SCALE
         elif has_strong:
-            project_scores.append(PROJECT_SCORE_BUILT)
+            base_score = PROJECT_SCORE_BUILT
         elif has_weak and has_strong:
-            project_scores.append(PROJECT_SCORE_MIXED)
+            base_score = PROJECT_SCORE_MIXED
         elif has_weak:
-            project_scores.append(PROJECT_SCORE_LEARNING)
+            base_score = PROJECT_SCORE_LEARNING
         elif len(exp.evidence) > 30:
-            project_scores.append(PROJECT_SCORE_CONTEXT)
+            base_score = PROJECT_SCORE_CONTEXT
         else:
-            project_scores.append(PROJECT_SCORE_MINIMAL)
+            base_score = PROJECT_SCORE_MINIMAL
+
+        # Apply AI topic multipliers
+        exp_topic = exp.experience.lower()
+        if any(kw in exp_topic for kw in ["rag", "agent", "vector", "fine-tuning", "ml pipeline", "model deployment", "model training"]):
+            base_score *= 1.5
+        elif any(kw in exp_topic for kw in ["crud", "api", "rest", "backend", "web"]):
+            base_score *= 0.8
+
+        project_scores.append(base_score)
 
     if project_scores:
         project_exp_score = min(100.0, sum(project_scores) / PROJECT_SCORE_NORMALIZATION_DIVISOR)
@@ -183,54 +225,70 @@ def calculate_score(
         project_exp_score = 0.0
 
     # ── 3. Semantic Similarity / Content Match (20%) ──
-    semantic_score = max(0.0, min(100.0, semantic_similarity * 100.0))
+    # Support dict from new hybrid embedding service, fallback to float if old format
+    if isinstance(semantic_similarity, dict):
+        final_sim = semantic_similarity.get("final_semantic_score", 0.0)
+        skill_sim = semantic_similarity.get("skill_semantic_score", 0.0)
+        proj_sim = semantic_similarity.get("project_semantic_score", 0.0)
+        exp_sim = semantic_similarity.get("experience_semantic_score", 0.0)
+    else:
+        final_sim = float(semantic_similarity)
+        skill_sim = proj_sim = exp_sim = final_sim
+
+    # Normalize BGE cosine similarity into ATS interpretation
+    if final_sim >= 0.75:
+        # Excellent semantic match
+        semantic_score = 90.0 + (min(1.0, final_sim) - 0.75) * (10.0 / 0.25)
+    elif final_sim >= 0.65:
+        # Strong semantic match
+        semantic_score = 80.0 + (final_sim - 0.65) * (9.0 / 0.10)
+    elif final_sim >= 0.50:
+        # Moderate match
+        semantic_score = 65.0 + (final_sim - 0.50) * (14.0 / 0.15)
+    else:
+        # Weak match
+        semantic_score = max(0.0, final_sim * (64.0 / 0.50))
 
     # ── 4. Production Engineering Score (15%) ──
-    prod_score = 0.0
-    prod_bonus_count = 0
+    # Evaluate a balanced set of production dimensions instead of just counting instances
+    prod_dimensions_found = set()
 
     for item in matched_skills:
         skill_lower = (item.required_skill or item.skill).lower()
         evidence_lower = item.evidence.lower()
+        combined_text = skill_lower + " " + evidence_lower
 
-        # Docker/containerization bonus
-        if any(kw in skill_lower for kw in ["docker", "kubernetes", "container"]):
-            prod_bonus_count += PROD_BONUS_DOCKER
-        if any(kw in evidence_lower for kw in ["docker", "deploy"]):
-            prod_bonus_count += PROD_BONUS_DOCKER_EVIDENCE
-
-        # API/backend bonus
-        if any(kw in skill_lower for kw in ["fastapi", "flask", "django", "rest"]):
-            prod_bonus_count += PROD_BONUS_API
-
-        # Database bonus
-        if any(kw in skill_lower for kw in ["postgresql", "mysql", "mongodb", "redis", "database"]):
-            prod_bonus_count += PROD_BONUS_DATABASE
-
-        # Testing bonus
-        if any(kw in skill_lower for kw in ["pytest", "testing", "unittest", "tdd"]):
-            prod_bonus_count += PROD_BONUS_TESTING
-
-        # Cloud bonus
-        if any(kw in skill_lower for kw in ["aws", "gcp", "azure", "cloud"]):
-            prod_bonus_count += PROD_BONUS_CLOUD
-
-        # CI/CD bonus
-        if any(kw in skill_lower for kw in ["ci/cd", "github actions", "jenkins"]):
-            prod_bonus_count += PROD_BONUS_CICD
-
-    prod_score = min(PROD_BONUS_MAX, float(prod_bonus_count))
+        if any(kw in combined_text for kw in ["docker", "kubernetes", "container"]):
+            prod_dimensions_found.add("containerization")
+        if any(kw in combined_text for kw in ["aws", "gcp", "azure", "cloud"]):
+            prod_dimensions_found.add("cloud")
+        if any(kw in combined_text for kw in ["ci/cd", "github actions", "jenkins", "gitlab ci", "pipeline"]):
+            prod_dimensions_found.add("cicd")
+        if any(kw in combined_text for kw in ["pytest", "testing", "unittest", "tdd", "integration test"]):
+            prod_dimensions_found.add("testing")
+        if any(kw in combined_text for kw in ["monitor", "grafana", "prometheus", "datadog", "observability"]):
+            prod_dimensions_found.add("monitoring")
+        if any(kw in combined_text for kw in ["log", "elk", "splunk", "kibana"]):
+            prod_dimensions_found.add("logging")
+        if any(kw in combined_text for kw in ["deploy", "production", "scale", "infrastructure"]):
+            prod_dimensions_found.add("deployment")
+            
+    # Base calculation: Each distinct production dimension is worth ~15 points out of 100 max
+    prod_score = min(100.0, len(prod_dimensions_found) * 15.0)
 
     # ── 5. Final Composite Score ──
-
+    settings = get_settings()
     final_float = (
-        WEIGHT_TECH_SKILL * core_tech_score
-        + WEIGHT_PROJECT_EXP * project_exp_score
-        + WEIGHT_SEMANTIC * semantic_score
-        + WEIGHT_PRODUCTION * prod_score
+        core_tech_score * settings.skill_weight
+        + semantic_score * settings.semantic_weight
     )
 
     final_score = max(0, min(100, round(final_float)))
+    
+    # ── 6. Sanity Validation Layer ──
+    # If the candidate has many matched skills and few critical gaps, ensure their score reflects ATS expectations.
+    if len(matched_skills) > 30 and len(critical_gaps) <= 2 and semantic_score >= 80.0:
+        final_score = max(80, final_score)
 
     missing_skills = critical_gaps + recommended_improvements + optional_skills
 
@@ -248,10 +306,13 @@ def calculate_score(
     )
 
     return ScoringResult(
-        skill_overlap_score=round(core_tech_score, 2),
-        semantic_similarity_score=round(semantic_score, 2),
-        project_experience_score=round(project_exp_score, 2),
-        bonus_score=round(prod_score, 2),
+        skill_overlap_score=core_tech_score,
+        semantic_similarity_score=semantic_score,
+        skill_semantic_score=max(0.0, min(100.0, skill_sim * 100.0)),
+        project_semantic_score=max(0.0, min(100.0, proj_sim * 100.0)),
+        experience_semantic_score=max(0.0, min(100.0, exp_sim * 100.0)),
+        project_experience_score=project_exp_score,
+        bonus_score=prod_score,
         final_score=final_score,
         matched_skills=matched_skills,
         missing_skills=missing_skills,
@@ -261,4 +322,10 @@ def calculate_score(
         project_experience=project_experience,
         candidate_level=candidate_level,
         confidence=confidence,
+        score_breakdown=ScoreBreakdown(
+            critical_match=critical_score * 100.0,
+            important_match=important_score * 100.0,
+            optional_match=optional_score * 100.0,
+            semantic_score=semantic_score
+        ),
     )

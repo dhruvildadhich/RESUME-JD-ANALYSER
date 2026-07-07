@@ -25,4 +25,11 @@ export async function analyzeResume(resumeFile, jdText) {
   return response.data;
 }
 
+export async function downloadReport(analysisData) {
+  const response = await apiClient.post("/api/report/download", analysisData, {
+    responseType: "blob",
+  });
+  return response.data;
+}
+
 export default apiClient;

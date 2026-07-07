@@ -1,13 +1,13 @@
 import React, { useState } from "react";
-import ExplanationCard from "./components/ExplanationCard";
 import LoadingSpinner from "./components/LoadingSpinner";
-import ScoreGauge from "./components/ScoreGauge";
-import SkillBadges from "./components/SkillBadges";
-import SuggestionsList from "./components/SuggestionsList";
 import UploadForm from "./components/UploadForm";
-import { Card, MetricCard, Button, Badge } from "./components/ui";
+import AnalysisDashboard from "./components/analysis/AnalysisDashboard";
+import AIAnalysisProgress from "./components/analysis/AIAnalysisProgress";
+import ResumePreview from "./components/preview/ResumePreview";
+import JDPreview from "./components/preview/JDPreview";
+import { Card, Button, Badge } from "./components/ui";
 import { COLORS, SPACING, TYPOGRAPHY, RADIUS } from "./styles/designTokens";
-import { analyzeResume } from "./services/api";
+import { analyzeResume, downloadReport } from "./services/api";
 
 const STATE = {
   IDLE: "idle",
@@ -20,15 +20,44 @@ export default function App() {
   const [appState, setAppState] = useState(STATE.IDLE);
   const [results, setResults] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [activeResumeFile, setActiveResumeFile] = useState(null);
+  const [activeJdText, setActiveJdText] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [apiFinished, setApiFinished] = useState(false);
+  const [apiError, setApiError] = useState(false);
+
+  const handleDownloadReport = async () => {
+    if (!results) return;
+    setIsDownloading(true);
+    try {
+      const blob = await downloadReport(results);
+      const url = window.URL.createObjectURL(new Blob([blob]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'AI_Recruiter_Report.pdf');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error("Failed to download report", err);
+      alert("Failed to download report. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const handleAnalyse = async (resumeFile, jdText) => {
     setAppState(STATE.LOADING);
     setErrorMessage("");
+    setApiFinished(false);
+    setApiError(false);
+    setActiveResumeFile(resumeFile);
+    setActiveJdText(jdText);
+    
     try {
       const data = await analyzeResume(resumeFile, jdText);
       setResults(data);
-      setAppState(STATE.RESULTS);
-      setTimeout(() => document.getElementById("results-section")?.scrollIntoView({ behavior: "smooth" }), 100);
+      setApiFinished(true); // Triggers AIAnalysisProgress onComplete
     } catch (err) {
       const msg =
         err?.response?.data?.detail?.message ||
@@ -36,7 +65,7 @@ export default function App() {
         err?.message ||
         "Something went wrong. Please try again.";
       setErrorMessage(typeof msg === "string" ? msg : JSON.stringify(msg));
-      setAppState(STATE.ERROR);
+      setApiError(true);
     }
   };
 
@@ -44,10 +73,12 @@ export default function App() {
     setResults(null);
     setAppState(STATE.IDLE);
     setErrorMessage("");
+    setApiFinished(false);
+    setApiError(false);
+    setActiveResumeFile(null);
+    setActiveJdText("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-
-  const r = results || {};
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: COLORS.canvas }}>
@@ -97,19 +128,37 @@ export default function App() {
             </div>
             <Badge
               variant="optional"
-              label="Powered by LLM Evaluation Engine"
+              label="AI Recruiter Intelligence Platform"
               style={{ fontSize: "9px", padding: "3px 8px", opacity: 0.7, letterSpacing: "0.04em" }}
             />
           </div>
 
           {appState === STATE.RESULTS && (
-            <Button id="new-analysis-btn" variant="secondary" onClick={handleReset}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-              </svg>
-              New Analysis
-            </Button>
+            <div style={{ display: "flex", gap: 12 }}>
+              <Button 
+                variant="primary" 
+                onClick={handleDownloadReport} 
+                disabled={isDownloading}
+              >
+                {isDownloading ? (
+                  <LoadingSpinner size={14} color="currentColor" />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                )}
+                {isDownloading ? "Generating..." : "Download Report"}
+              </Button>
+              <Button id="new-analysis-btn" variant="secondary" onClick={handleReset}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+                </svg>
+                New Analysis
+              </Button>
+            </div>
           )}
         </div>
       </header>
@@ -134,7 +183,7 @@ export default function App() {
               }}
             >
               <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: COLORS["accent-blue"] }} />
-              Powered by Gemini AI + Sentence Transformers
+              Advanced Candidate Matching System
             </div>
 
             <h1
@@ -199,98 +248,26 @@ export default function App() {
         )}
 
         {appState === STATE.LOADING && (
-          <Card variant="default" style={{ padding: SPACING.xxl }}>
-            <LoadingSpinner />
-          </Card>
+          <div style={{ display: "flex", flexDirection: "column", gap: SPACING.xl }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: SPACING.xl }} className="max-md:grid-cols-1">
+              <ResumePreview resumeFile={activeResumeFile} />
+              <JDPreview jdText={activeJdText} />
+            </div>
+            <AIAnalysisProgress 
+              isApiComplete={apiFinished}
+              isError={apiError}
+              errorMessage={errorMessage}
+              onComplete={() => {
+                setAppState(STATE.RESULTS);
+                setTimeout(() => document.getElementById("results-section")?.scrollIntoView({ behavior: "smooth" }), 100);
+              }}
+              onRetry={() => handleAnalyse(activeResumeFile, activeJdText)}
+            />
+          </div>
         )}
 
         {appState === STATE.RESULTS && results && (
-          <div id="results-section" style={{ display: "flex", flexDirection: "column", gap: SPACING.xl, animation: "fadeIn 0.6s ease" }}>
-            {results.fallback_mode && (
-              <FallbackBanner />
-            )}
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "280px 1fr",
-                gap: SPACING.xl,
-              }}
-              className="max-lg:grid-cols-1"
-            >
-              <Card variant="default" style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: SPACING.sm }}>
-                <span
-                  style={{
-                    fontSize: TYPOGRAPHY.micro.fontSize,
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                    color: COLORS["ink-muted"],
-                    textAlign: "center",
-                  }}
-                >
-                  Overall Match
-                </span>
-                <ScoreGauge score={r.match_score} />
-              </Card>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: SPACING.md,
-                }}
-                className="max-sm:grid-cols-1"
-              >
-                <MetricCard
-                  label="Matched Skills"
-                  value={r.matched_skills?.length || 0}
-                  sub="matched competencies"
-                  accent="emerald"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  }
-                />
-                <MetricCard
-                  label="Skill Gaps"
-                  value={(r.critical_gaps?.length || 0) + (r.recommended_improvements?.length || 0) + (r.optional_skills?.length || 0) || r.missing_skills?.length || 0}
-                  sub="missing JD skills"
-                  accent="red"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="15" y1="9" x2="9" y2="15" />
-                      <line x1="9" y1="9" x2="15" y2="15" />
-                    </svg>
-                  }
-                />
-                <MetricCard
-                  label="Skill Overlap"
-                  value={`${r.skill_overlap_score?.toFixed(0) || 0}%`}
-                  sub="of JD skills covered"
-                  accent="brand"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                    </svg>
-                  }
-                />
-                <MetricCard
-                  label="Semantic Similarity"
-                  value={`${r.semantic_similarity_score?.toFixed(0) || 0}%`}
-                  sub="content relevance"
-                  accent="blue"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                    </svg>
-                  }
-                />
-              </div>
-            </div>
-
+          <div style={{ display: "flex", flexDirection: "column", gap: SPACING.xl, animation: "fadeIn 0.6s ease" }}>
             <div
               style={{
                 display: "grid",
@@ -299,125 +276,11 @@ export default function App() {
               }}
               className="max-md:grid-cols-1"
             >
-              {r.candidate_level && (
-                <Card variant="default" style={{ display: "flex", alignItems: "flex-start", gap: SPACING.md }}>
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: RADIUS.md,
-                      backgroundColor: `${COLORS["accent-blue"]}15`,
-                      border: `1px solid ${COLORS["accent-blue"]}20`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: COLORS["accent-blue"],
-                      flexShrink: 0,
-                    }}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <span
-                      style={{
-                        fontSize: TYPOGRAPHY.micro.fontSize,
-                        fontWeight: 600,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: COLORS["ink-muted"],
-                        display: "block",
-                        marginBottom: 4,
-                      }}
-                    >
-                      Seniority Assessment
-                    </span>
-                    <h3 style={{ fontSize: "18px", fontWeight: 700, color: COLORS.ink, margin: "0 0 6px", letterSpacing: "-0.18px" }}>
-                      {r.candidate_level.candidate_level}
-                    </h3>
-                    <p style={{ fontSize: "12px", color: COLORS["ink-muted"], margin: 0, lineHeight: 1.5, opacity: 0.7 }}>
-                      {r.candidate_level.reason}
-                    </p>
-                  </div>
-                </Card>
-              )}
-
-              {r.confidence && (
-                <Card variant="default" style={{ display: "flex", alignItems: "flex-start", gap: SPACING.md }}>
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: RADIUS.md,
-                      backgroundColor: `${getConfidenceColor(r.confidence.confidence_level)}15`,
-                      border: `1px solid ${getConfidenceColor(r.confidence.confidence_level)}20`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: getConfidenceColor(r.confidence.confidence_level),
-                      flexShrink: 0,
-                    }}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <span
-                      style={{
-                        fontSize: TYPOGRAPHY.micro.fontSize,
-                        fontWeight: 600,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.12em",
-                        color: COLORS["ink-muted"],
-                        display: "block",
-                        marginBottom: 4,
-                      }}
-                    >
-                      Evaluation Confidence
-                    </span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <h3 style={{ fontSize: "18px", fontWeight: 700, color: COLORS.ink, margin: 0, letterSpacing: "-0.18px" }}>
-                        {r.confidence.confidence_score}%
-                      </h3>
-                      <ConfidenceBadge level={r.confidence.confidence_level} />
-                    </div>
-                    <p style={{ fontSize: "12px", color: COLORS["ink-muted"], margin: 0, lineHeight: 1.5, opacity: 0.7 }}>
-                      Based on resume evidence context depth, project description verbal strength, and technical matching indicators.
-                    </p>
-                  </div>
-                </Card>
-              )}
+              <ResumePreview resumeFile={activeResumeFile} />
+              <JDPreview jdText={activeJdText} matchedSkills={results.matched_skills} missingSkills={results.missing_skills} />
             </div>
 
-            <SkillBadges
-              matched={r.matched_skills}
-              criticalGaps={r.critical_gaps || []}
-              recommendedImprovements={r.recommended_improvements || []}
-              optionalSkills={r.optional_skills || []}
-            />
-
-            <ExplanationCard
-              explanation={r.explanation}
-              hiringRecommendation={r.hiring_recommendation}
-              strengths={r.strengths}
-              weaknesses={r.weaknesses}
-              skillOverlapScore={r.skill_overlap_score}
-              semanticScore={r.semantic_similarity_score}
-            />
-
-            <SuggestionsList suggestions={r.suggestions} />
-
-            <div style={{ display: "flex", justifyContent: "center", paddingTop: SPACING.md }}>
-              <Button onClick={handleReset} variant="primary" style={{ padding: "14px 36px" }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-                </svg>
-                Analyze Another Resume
-              </Button>
-            </div>
+            <AnalysisDashboard results={results} />
           </div>
         )}
       </main>
@@ -431,78 +294,9 @@ export default function App() {
         }}
       >
         <p style={{ fontSize: "11px", color: COLORS["ink-muted"], opacity: 0.4, margin: 0, letterSpacing: "-0.11px" }}>
-          Built with FastAPI &middot; Gemini AI &middot; Sentence Transformers &middot; React &middot; Tailwind CSS
+          AI Recruiter Intelligence &middot; Resume Analysis Engine &middot; Candidate Evaluation Platform
         </p>
       </footer>
     </div>
-  );
-}
-
-function getConfidenceColor(level) {
-  if (!level) return COLORS["ink-muted"];
-  const lc = level.toUpperCase();
-  if (lc === "HIGH") return COLORS["semantic-success"];
-  if (lc === "MEDIUM") return COLORS.semantic.warning;
-  return COLORS.semantic.error;
-}
-
-function ConfidenceBadge({ level }) {
-  if (!level) return null;
-  const lc = level.toUpperCase();
-  const color = getConfidenceColor(level);
-  return (
-    <span
-      style={{
-        fontSize: "9px",
-        fontWeight: 800,
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        padding: "3px 10px",
-        borderRadius: RADIUS.sm,
-        backgroundColor: `${color}20`,
-        color,
-        border: `1px solid ${color}30`,
-      }}
-    >
-      {lc}
-    </span>
-  );
-}
-
-function FallbackBanner() {
-  return (
-    <Card
-      variant="default"
-      style={{
-        padding: SPACING.md,
-        backgroundColor: `${COLORS.semantic.warning}08`,
-        border: `1px solid ${COLORS.semantic.warning}25`,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: SPACING.sm }}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={COLORS.semantic.warning} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
-          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-          <line x1="12" y1="9" x2="12" y2="13" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-        <div>
-          <h4 style={{ fontSize: "14px", fontWeight: 700, color: COLORS.ink, margin: "0 0 4px", letterSpacing: "-0.14px" }}>
-            Gemini API Key Access Restricted (Fallback Mode Active)
-          </h4>
-          <p style={{ fontSize: "13px", color: COLORS["ink-muted"], lineHeight: 1.5, margin: 0, letterSpacing: "-0.13px" }}>
-            Your Gemini API key or Google Cloud project returned a <strong>403 Permission Denied</strong> error. To ensure the app remains fully functional, we have activated our <strong>local keyword-based heuristic pipeline</strong>.
-          </p>
-          <p style={{ fontSize: "11px", color: COLORS["ink-muted"], marginTop: 8, lineHeight: 1.5, opacity: 0.7 }}>
-            To resolve: Verify billing, confirm age verification at{" "}
-            <a href="https://myaccount.google.com/age-verification" target="_blank" rel="noopener noreferrer" style={{ color: COLORS["accent-blue"], textDecoration: "underline" }}>
-              myaccount.google.com/age-verification
-            </a>, or generate a new API key in a new project on{" "}
-            <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" style={{ color: COLORS["accent-blue"], textDecoration: "underline" }}>
-              Google AI Studio
-            </a>.
-          </p>
-        </div>
-      </div>
-    </Card>
   );
 }

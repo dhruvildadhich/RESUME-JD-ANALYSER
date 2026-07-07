@@ -19,122 +19,31 @@ from app.core.constants import (
 )
 from app.schemas.analysis import SkillExtractionResult, MatchedSkill, MissingSkill, ProjectExperience, CandidateLevel, ConfidenceResult
 from app.core.logging import get_logger
+from app.core.skill_ontology import (
+    CANONICAL_CASES as _CANONICAL_CASES,
+    ALL_FAMILIES,
+    COMMON_SKILLS as _COMMON_SKILLS,
+    CATEGORY_MAPPINGS as _CATEGORY_MAPPINGS,
+    IMPORTANCE_MAPPINGS as _IMPORTANCE_MAPPINGS,
+    LLM_FAMILY,
+    PYTHON_BACKEND_FAMILY,
+    JS_BACKEND_FAMILY,
+    DL_FAMILY,
+    VECTOR_DB_FAMILY,
+    CV_FAMILY,
+    CLOUD_FAMILY,
+    API_INTEGRATION_FAMILY,
+    DB_SCHEMA_FAMILY,
+    RAG_FAMILY,
+    DEVOPS_FAMILY,
+    TESTING_FAMILY
+)
+from app.services.reranker_service import validate_match
+from app.services.embedding_service import get_embedding, _compute_cosine_sim
 
 logger = get_logger(__name__)
 
-_CANONICAL_CASES = {
-    "python": "Python",
-    "fastapi": "FastAPI",
-    "flask": "Flask",
-    "django": "Django",
-    "react": "React",
-    "next.js": "Next.js",
-    "nextjs": "Next.js",
-    "docker": "Docker",
-    "kubernetes": "Kubernetes",
-    "gemini": "Gemini",
-    "openai": "OpenAI",
-    "claude": "Claude",
-    "groq": "Groq",
-    "pytorch": "PyTorch",
-    "tensorflow": "TensorFlow",
-    "chromadb": "ChromaDB",
-    "pinecone": "Pinecone",
-    "faiss": "FAISS",
-    "weaviate": "Weaviate",
-    "rag": "RAG",
-    "llm": "LLM",
-    "langchain": "LangChain",
-    "llamaindex": "LlamaIndex",
-    "scikit-learn": "Scikit-learn",
-    "pandas": "Pandas"
-}
 
-LLM_FAMILY = {
-    "llm", "large language model", "openai", "chatgpt", "gpt", "gemini", "claude", 
-    "llama", "mistral", "groq", "hugging face", "transformers", "deepseek", 
-    "anthropic", "cohere", "vertex ai"
-}
-BACKEND_FAMILY = {"fastapi", "flask", "django", "express", "nodejs", "node.js", "spring"}
-DL_FAMILY = {"tensorflow", "pytorch", "keras", "scikit-learn", "sklearn"}
-VECTOR_DB_FAMILY = {"chromadb", "chroma", "pinecone", "faiss", "weaviate", "qdrant", "milvus"}
-CV_FAMILY = {
-    "computer vision", "cv", "opencv", "virtual try-on", "image processing", 
-    "multimodal ai", "visual recommendation", "yolo", "image segmentation", 
-    "image classification", "object detection"
-}
-
-_COMMON_SKILLS = list(LLM_FAMILY) + list(BACKEND_FAMILY) + list(DL_FAMILY) + list(VECTOR_DB_FAMILY) + list(CV_FAMILY) + [
-    "python", "rag", "langchain", "llamaindex", "docker", "kubernetes", "chunking", 
-    "embeddings", "vector database", "retrieval pipeline", "testing", "pytest", 
-    "scikit-learn", "pandas", "rest api", "graphql", "microservices", "ci/cd", 
-    "machine learning", "deep learning", "nlp", "computer vision", "data science", 
-    "agile", "scrum", "tdd", "java", "c++", "rust", "go", "ruby", "php", "swift", "kotlin", 
-    "sql", "html", "css", "spring", "react", "vue", "angular", "express", "node.js", 
-    "git", "github", "gitlab", "jenkins", "terraform", "ansible", "aws", "gcp", "azure",
-    "postgresql", "mysql", "mongodb", "redis", "elasticsearch", "sqlite", "dynamodb"
-]
-
-_CATEGORY_MAPPINGS = {
-    "gemini": "LLM API Integration",
-    "openai": "LLM API Integration",
-    "claude": "LLM API Integration",
-    "groq": "LLM API Integration",
-    "chromadb": "Vector Database Experience",
-    "pinecone": "Vector Database Experience",
-    "faiss": "Vector Database Experience",
-    "weaviate": "Vector Database Experience",
-    "sentencetransformer": "Embedding Experience",
-    "embeddings": "Embedding Experience",
-    "fastapi": "Python Backend Development",
-    "flask": "Python Backend Development",
-    "django": "Python Backend Development",
-    "react": "Frontend Development",
-    "next.js": "Frontend Development",
-    "nextjs": "Frontend Development",
-    "docker": "Containerization",
-    "kubernetes": "Containerization",
-    "pytorch": "Deep Learning",
-    "tensorflow": "Deep Learning",
-    "keras": "Deep Learning",
-    "scikit-learn": "Machine Learning"
-}
-
-_IMPORTANCE_MAPPINGS = {
-    "python": "CRITICAL",
-    "fastapi": "CRITICAL",
-    "flask": "CRITICAL",
-    "django": "CRITICAL",
-    "llm": "CRITICAL",
-    "rag": "CRITICAL",
-    "embeddings": "CRITICAL",
-    "chromadb": "CRITICAL",
-    "pinecone": "CRITICAL",
-    "faiss": "CRITICAL",
-    "weaviate": "CRITICAL",
-    "rest api": "CRITICAL",
-    "backend": "CRITICAL",
-    "deep learning": "CRITICAL",
-    "pytorch": "CRITICAL",
-    "tensorflow": "CRITICAL",
-    
-    "docker": "IMPORTANT",
-    "langchain": "IMPORTANT",
-    "llamaindex": "IMPORTANT",
-    "sql": "IMPORTANT",
-    "cloud": "IMPORTANT",
-    "testing": "IMPORTANT",
-    "ci/cd": "IMPORTANT",
-    "mlops": "IMPORTANT",
-    "containerization": "IMPORTANT",
-    
-    "claude": "OPTIONAL",
-    "openai": "OPTIONAL",
-    "azure": "OPTIONAL",
-    "aws": "OPTIONAL",
-    "gcp": "OPTIONAL",
-    "research": "OPTIONAL"
-}
 
 ACTION_VERBS = {
     "built", "designed", "implemented", "optimized", "deployed", "integrated", 
@@ -161,13 +70,7 @@ def extract_all_resume_keywords(text: str) -> set[str]:
     text_lower = text.lower()
     found = set()
     # List of keywords for matching
-    keywords = list(LLM_FAMILY) + list(BACKEND_FAMILY) + list(DL_FAMILY) + list(VECTOR_DB_FAMILY) + list(CV_FAMILY) + [
-        "python", "rag", "langchain", "llamaindex", "docker", "kubernetes", "chunking", 
-        "embeddings", "vector database", "retrieval pipeline", "testing", "pytest", 
-        "scikit-learn", "pandas", "rest api", "graphql", "microservices", "ci/cd", 
-        "machine learning", "deep learning", "nlp", "computer vision", "data science", 
-        "agile", "scrum", "tdd"
-    ]
+    keywords = _COMMON_SKILLS
     for kw in keywords:
         pattern = r"\b" + re.escape(kw) + r"\b"
         if re.search(pattern, text_lower) or kw in text_lower: # 'in text_lower' for multi-word keywords
@@ -242,10 +145,11 @@ def extract_years_of_experience(text: str) -> float | None:
     years = re.findall(r"\b(20\d{2})\b", text_lower)
     if years:
         try:
-            year_ints = sorted([int(y) for y in years if 1990 <= int(y) <= 2026]) # Filter for reasonable year range
+            from datetime import datetime
+            current_year = datetime.now().year
+            year_ints = sorted([int(y) for y in years if 1990 <= int(y) <= current_year]) # Filter for reasonable year range
             
             # If "present" or "current" is mentioned, assume current year for max
-            current_year = 2026
             if any(x in text_lower for x in ["present", "current", "to date", "now"]):
                 max_y = current_year
             elif year_ints:
@@ -479,8 +383,9 @@ def post_process_extraction_result(
                 continue # Skip adding to missing
                 
         # C. Backend framework equivalency
-        if ms_name in BACKEND_FAMILY:
-            alt_found_kws = [kw for kw in BACKEND_FAMILY if kw in resume_keywords and kw != ms_name]
+        # C. Python Backend framework equivalency
+        if ms_name in PYTHON_BACKEND_FAMILY:
+            alt_found_kws = [kw for kw in PYTHON_BACKEND_FAMILY if kw in resume_keywords and kw != ms_name]
             if alt_found_kws:
                 evidence_sent = find_evidence_for_family(resume_text, alt_found_kws)
                 new_matched.append(
@@ -491,6 +396,60 @@ def post_process_extraction_result(
                         match_type=EQUIVALENT,
                         category="Python Backend Development",
                         evidence=f"Equivalent backend experience: {evidence_sent}",
+                        confidence=0.90
+                    )
+                )
+                continue # Skip adding to missing
+                
+        # C2. JavaScript Backend framework equivalency
+        if ms_name in JS_BACKEND_FAMILY:
+            alt_found_kws = [kw for kw in JS_BACKEND_FAMILY if kw in resume_keywords and kw != ms_name]
+            if alt_found_kws:
+                evidence_sent = find_evidence_for_family(resume_text, alt_found_kws)
+                new_matched.append(
+                    MatchedSkill(
+                        skill="JavaScript Backend Development",
+                        required_skill=canonical_case(ms_obj.skill),
+                        candidate_skill=canonical_case(alt_found_kws[0]),
+                        match_type=EQUIVALENT,
+                        category="JavaScript Backend Development",
+                        evidence=f"Equivalent JavaScript backend experience: {evidence_sent}",
+                        confidence=0.90
+                    )
+                )
+                continue # Skip adding to missing
+                
+        # C3. API Integration equivalency
+        if ms_name in API_INTEGRATION_FAMILY:
+            alt_found_kws = [kw for kw in API_INTEGRATION_FAMILY if kw in resume_keywords and kw != ms_name]
+            if alt_found_kws:
+                evidence_sent = find_evidence_for_family(resume_text, alt_found_kws)
+                new_matched.append(
+                    MatchedSkill(
+                        skill="API Integration",
+                        required_skill=canonical_case(ms_obj.skill),
+                        candidate_skill=canonical_case(alt_found_kws[0]),
+                        match_type=EQUIVALENT,
+                        category="API Integration",
+                        evidence=f"Equivalent API integration experience: {evidence_sent}",
+                        confidence=0.90
+                    )
+                )
+                continue # Skip adding to missing
+
+        # C4. Database Schema equivalency
+        if ms_name in DB_SCHEMA_FAMILY:
+            alt_found_kws = [kw for kw in DB_SCHEMA_FAMILY if kw in resume_keywords and kw != ms_name]
+            if alt_found_kws:
+                evidence_sent = find_evidence_for_family(resume_text, alt_found_kws)
+                new_matched.append(
+                    MatchedSkill(
+                        skill="Database Schema Design",
+                        required_skill=canonical_case(ms_obj.skill),
+                        candidate_skill=canonical_case(alt_found_kws[0]),
+                        match_type=EQUIVALENT,
+                        category="Database Schema Design",
+                        evidence=f"Equivalent database schema experience: {evidence_sent}",
                         confidence=0.90
                     )
                 )
@@ -534,7 +493,25 @@ def post_process_extraction_result(
                 )
                 continue # Skip adding to missing
                 
-        # F. Deep learning equivalency
+        # F. Cloud Platform equivalency
+        if ms_name in CLOUD_FAMILY:
+            alt_found_kws = [kw for kw in CLOUD_FAMILY if kw in resume_keywords and kw != ms_name]
+            if alt_found_kws:
+                evidence_sent = find_evidence_for_family(resume_text, alt_found_kws)
+                new_matched.append(
+                    MatchedSkill(
+                        skill="Cloud Platform Experience",
+                        required_skill=canonical_case(ms_obj.skill),
+                        candidate_skill=canonical_case(alt_found_kws[0]),
+                        match_type=EQUIVALENT,
+                        category="Cloud Platform Experience",
+                        evidence=f"Equivalent cloud provider: {evidence_sent}",
+                        confidence=0.90
+                    )
+                )
+                continue # Skip adding to missing
+                
+        # G. Deep learning equivalency
         if ms_name in DL_FAMILY:
             alt_found_kws = [kw for kw in DL_FAMILY if kw in resume_keywords and kw != ms_name]
             if alt_found_kws:
@@ -610,7 +587,33 @@ def post_process_extraction_result(
     )
     result.confidence = ConfidenceResult(confidence_score=conf_score, confidence_level=conf_level)
     
-    result.matched_skills = new_matched
+    # Deduplicate new_matched based on category/required_skill priority: EXACT_MATCH > EQUIVALENT > PARTIAL
+    dedup_map = {}
+    priority = {"EXACT_MATCH": 3, "EQUIVALENT": 2, "PARTIAL": 1}
+    for m in new_matched:
+        key = (m.required_skill or m.skill).lower()
+        if key not in dedup_map or priority.get(m.match_type, 0) > priority.get(dedup_map[key].match_type, 0):
+            dedup_map[key] = m
+            
+    # Apply hybrid confidence formula: LLM_confidence * 0.40 + embedding_similarity * 0.30 + cross_encoder_score * 0.30
+    for m in dedup_map.values():
+        llm_conf = m.confidence
+        req = m.required_skill or m.skill
+        ev = m.evidence or m.candidate_skill or ""
+        
+        emb_sim = 0.0
+        if req and ev:
+            try:
+                emb_req = get_embedding(req)
+                emb_ev = get_embedding(ev)
+                emb_sim = _compute_cosine_sim(emb_req, emb_ev)
+            except Exception:
+                emb_sim = 0.5
+                
+        cross_score = validate_match(req, ev)
+        m.confidence = (llm_conf * 0.40) + (emb_sim * 0.30) + (cross_score * 0.30)
+
+    result.matched_skills = list(dedup_map.values())
     
     return result
 
@@ -760,8 +763,8 @@ def extract_skills_fallback(resume_text: str, jd_text: str) -> SkillExtractionRe
                 )
             )
 
-    # Temporary placeholders; actual values will be set by post_process_extraction_result
-    candidate_level = CandidateLevel(candidate_level="Junior Engineer", reason="Temporary evaluation by fallback.")
+    level_name, level_reason = evaluate_seniority(resume_text)
+    candidate_level = CandidateLevel(candidate_level=level_name, reason=level_reason)
     confidence = ConfidenceResult(confidence_score=70, confidence_level="MEDIUM") # Default lower confidence for fallback
 
     result = SkillExtractionResult(

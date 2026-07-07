@@ -19,7 +19,7 @@ from app.api.routes import router
 from app.config.settings import get_settings
 from app.core.cache import initialize_cache
 from app.core.logging import get_logger, setup_logging
-from app.services.embedding_service import get_embedding_model
+from app.services.embedding_service import EmbeddingService
 
 settings = get_settings()
 setup_logging(settings.log_level)
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting Resume-JD Matcher API")
     initialize_cache()
     try:
-        get_embedding_model()  # load model into memory before first request
+        await EmbeddingService.warmup()  # load model into memory before first request
         logger.info("Embedding model pre-warmed successfully")
     except Exception as exc:
         logger.warning("Embedding model pre-warm failed", extra={"error": str(exc)})
